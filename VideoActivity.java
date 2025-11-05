@@ -56,6 +56,21 @@ public class VideoActivity extends AppCompatActivity {
     private boolean isLockedLandscape = false;
     private boolean isLockedPortrait = false;
 
+    // ✅ 추가: 고정 해제 딜레이를 위한 타임스탬프
+    private long lockTimestamp = 0;
+    private static final long LOCK_DELAY_MS = 1000; // 1초 딜레이
+
+    // ✅ 추가: 센서 범위를 더 엄격하게
+    private static final int LANDSCAPE_MIN = 80;  // 70 → 80
+    private static final int LANDSCAPE_MAX = 100; // 110 → 100
+    private static final int LANDSCAPE_MIN_REVERSE = 260; // 250 → 260
+    private static final int LANDSCAPE_MAX_REVERSE = 280; // 290 → 280
+
+    private static final int PORTRAIT_MIN = 350;  // 340 → 350
+    private static final int PORTRAIT_MAX = 10;   // 20 → 10
+    private static final int PORTRAIT_MIN_REVERSE = 170; // 160 → 170
+    private static final int PORTRAIT_MAX_REVERSE = 190; // 200 → 190
+
     private ContentObserver rotationObserver;
     private OrientationEventListener orientationListener; // ✅ 센서 리스너
 
@@ -497,32 +512,39 @@ public class VideoActivity extends AppCompatActivity {
             public void onOrientationChanged(int orientation) {
                 if (orientation == ORIENTATION_UNKNOWN) return;
 
-                // 기기가 가로 방향인지 확인 (70-110도 또는 250-290도)
-                boolean deviceIsLandscape =
-                        (orientation >= 70 && orientation <= 110) ||   // 왼쪽 가로
-                                (orientation >= 250 && orientation <= 290);    // 오른쪽 가로
+                // ✅ 고정한 지 LOCK_DELAY_MS 이내면 무시
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lockTimestamp < LOCK_DELAY_MS) {
+                    return;
+                }
 
-                // 기기가 세로 방향인지 확인 (0-20도, 340-360도 또는 160-200도)
+                // ✅ 더 엄격한 범위로 기기 방향 감지
+                boolean deviceIsLandscape =
+                        (orientation >= LANDSCAPE_MIN && orientation <= LANDSCAPE_MAX) ||
+                                (orientation >= LANDSCAPE_MIN_REVERSE && orientation <= LANDSCAPE_MAX_REVERSE);
+
                 boolean deviceIsPortrait =
-                        (orientation >= 0 && orientation <= 20) ||     // 정상 세로
-                                (orientation >= 340 && orientation <= 360) ||  // 정상 세로
-                                (orientation >= 160 && orientation <= 200);    // 거꾸로 세로
+                        (orientation >= 0 && orientation <= PORTRAIT_MAX) ||
+                                (orientation >= PORTRAIT_MIN && orientation <= 360) ||
+                                (orientation >= PORTRAIT_MIN_REVERSE && orientation <= PORTRAIT_MAX_REVERSE);
 
                 // ✅ 가로 고정 상태에서 기기를 가로로 돌리면 센서모드 복귀
                 if (isLockedLandscape && deviceIsLandscape) {
                     runOnUiThread(() -> {
+                        Log.d("VideoActivity", "Unlocking landscape mode - returning to sensor");
                         isLockedLandscape = false;
                         if (isAutoRotationEnabled()) {
-                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
                         }
                     });
                 }
                 // ✅ 세로 고정 상태에서 기기를 세로로 세우면 센서모드 복귀
                 else if (isLockedPortrait && deviceIsPortrait) {
                     runOnUiThread(() -> {
+                        Log.d("VideoActivity", "Unlocking portrait mode - returning to sensor");
                         isLockedPortrait = false;
                         if (isAutoRotationEnabled()) {
-                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
                         }
                     });
                 }
@@ -531,6 +553,46 @@ public class VideoActivity extends AppCompatActivity {
 
         if (orientationListener.canDetectOrientation()) {
             orientationListener.enable();
+        }
+    }
+
+    private void goToLandscape() {
+        isLandscape = true;
+        isLockedLandscape = true;
+        isLockedPortrait = false;
+
+        // ✅ 고정 타임스탬프 기록
+        lockTimestamp = System.currentTimeMillis();
+
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        applyBarsByOrientation(Configuration.ORIENTATION_LANDSCAPE);
+        updateButtonIcon();
+
+        Log.d("VideoActivity", "Locked to landscape mode");
+    }
+
+    private void goToPortrait() {
+        isLandscape = false;
+        isLockedLandscape = false;
+        isLockedPortrait = true;
+
+        // ✅ 고정 타임스탬프 기록
+        lockTimestamp = System.currentTimeMillis();
+
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+
+        // ✅ 딜레이 제거 - 즉시 적용
+        applyBarsByOrientation(Configuration.ORIENTATION_PORTRAIT);
+        updateButtonIcon();
+
+        Log.d("VideoActivity", "Locked to portrait mode");
+    }
+
+    // ✅ 추가: 센서 모드로 복귀할 때 호출되는 메서드
+    private void returnToSensorMode() {
+        if (isAutoRotationEnabled()) {
+            // UNSPECIFIED 대신 SENSOR 사용
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
         }
     }
 
@@ -568,26 +630,26 @@ public class VideoActivity extends AppCompatActivity {
         }
     }
 
-    private void goToLandscape() {
-        isLandscape = true;
-        isLockedLandscape = true;  // ✅ 가로 고정
-        isLockedPortrait = false;
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-        applyBarsByOrientation(Configuration.ORIENTATION_LANDSCAPE);
-        updateButtonIcon();
-    }
-
-    private void goToPortrait() {
-        isLandscape = false;
-        isLockedLandscape = false;
-        isLockedPortrait = true;  // ✅ 세로 고정
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            applyBarsByOrientation(Configuration.ORIENTATION_PORTRAIT);
-            updateButtonIcon();
-        }, 100);
-    }
+//    private void goToLandscape() {
+//        isLandscape = true;
+//        isLockedLandscape = true;  // ✅ 가로 고정
+//        isLockedPortrait = false;
+//        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+//        applyBarsByOrientation(Configuration.ORIENTATION_LANDSCAPE);
+//        updateButtonIcon();
+//    }
+//
+//    private void goToPortrait() {
+//        isLandscape = false;
+//        isLockedLandscape = false;
+//        isLockedPortrait = true;  // ✅ 세로 고정
+//        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+//
+//        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+//            applyBarsByOrientation(Configuration.ORIENTATION_PORTRAIT);
+//            updateButtonIcon();
+//        }, 100);
+//    }
 
     private void updateButtonIcon() {
         if (isLandscape) {
@@ -626,18 +688,20 @@ public class VideoActivity extends AppCompatActivity {
 
         ADHelper.updateAdVisibilityForDeviceConfiguration(this);
 
-        isLandscape = (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE);
+        // ✅ 고정 모드가 아닐 때만 isLandscape 업데이트
+        if (!isLockedLandscape && !isLockedPortrait) {
+            isLandscape = (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE);
+        }
+
         applyBarsByOrientation(newConfig.orientation);
         updateButtonIcon();
 
-        // ✅ TextureView 레이아웃이 완료된 후 실행
         textureView.post(new Runnable() {
             @Override
             public void run() {
                 applyVideoFit();
             }
         });
-
     }
 
     @Override
